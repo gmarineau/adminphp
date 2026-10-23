@@ -1,0 +1,59 @@
+<?php
+
+namespace Gmarineau\AdminPhp\Actions;
+
+use Gmarineau\AdminPhp\Modules\Module;
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Facades\Validator;
+use Illuminate\Validation\ValidationException;
+use InvalidArgumentException;
+
+/**
+ * Validates the submitted form of a module and persists it: model columns first,
+ * then what each field stores outside the model (blocks…). Fields absent from
+ * the input are left untouched.
+ */
+class SaveModuleContent
+{
+    /**
+     * @param  array<string, mixed>  $input
+     *
+     * @throws ValidationException
+     */
+    public function handle(Module $module, array $input, ?Model $model = null): Model
+    {
+        $modelClass = $module->modelClass();
+        $model ??= new $modelClass;
+
+        if (! $model instanceof $modelClass) {
+            throw new InvalidArgumentException(sprintf(
+                'Module [%s] manages [%s] models, [%s] given.',
+                $module->name(),
+                $modelClass,
+                $model::class,
+            ));
+        }
+
+        $validated = Validator::make(
+            $input,
+            $module->validationRules($input, onlyPresentFields: $model->exists),
+            attributes: $module->validationAttributes($input),
+        )->validate();
+
+        $fields = array_intersect_key($module->fields(), $validated);
+
+        return $model->getConnection()->transaction(function () use ($model, $fields, $validated): Model {
+            foreach ($fields as $name => $field) {
+                $field->fillModel($model, $validated[$name] ?? null);
+            }
+
+            $model->save();
+
+            foreach ($fields as $name => $field) {
+                $field->afterModelSaved($model, $validated[$name] ?? null);
+            }
+
+            return $model;
+        });
+    }
+}

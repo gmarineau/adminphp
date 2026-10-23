@@ -1,0 +1,26 @@
+laravel: '@testbench'
+
+env:
+  - APP_ENV=local
+  - APP_DEBUG=true
+  - APP_KEY=base64:YWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWE=
+  - DB_CONNECTION=sqlite
+
+providers:
+  - Gmarineau\AdminPhp\AdminPhpServiceProvider
+  - Workbench\App\Providers\WorkbenchServiceProvider
+
+migrations:
+  - database/migrations
+  - tests/database/migrations
+
+workbench:
+  start: '/admin'
+  install: true
+  health: false
+  build:
+    - create-sqlite-db
+    - migrate-fresh
+  sync:
+    - from: public
+      to: public/vendor/adminphp

@@ -1,0 +1,126 @@
+<?php
+
+namespace Gmarineau\AdminPhp\Modules;
+
+use Gmarineau\AdminPhp\Fields\Field;
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Str;
+
+abstract class Module
+{
+    /**
+     * @var class-string<Model>
+     */
+    protected string $model;
+
+    /**
+     * Label shown in the admin navigation (defaults to the plural of the name).
+     */
+    protected string $title = '';
+
+    /**
+     * Field used to name an item in listings.
+     */
+    protected string $titleField = 'title';
+
+    /**
+     * @return array<int, Field>
+     */
+    abstract public function form(): array;
+
+    /**
+     * Identifier of the module, also used as the model's morph map alias (ArticleModule => article).
+     */
+    public function name(): string
+    {
+        return Str::kebab(Str::replaceEnd('Module', '', class_basename(static::class)));
+    }
+
+    public function title(): string
+    {
+        return $this->title !== '' ? $this->title : Str::headline(Str::plural($this->name()));
+    }
+
+    /**
+     * Name of an item in listings, in the given locale with a fallback on the other locales.
+     */
+    public function itemTitle(Model $model, string $locale): string
+    {
+        $value = ($this->fields()[$this->titleField] ?? null)?->valueFromModel($model);
+
+        if (is_array($value)) {
+            $value = $value[$locale] ?? (array_values(array_filter($value))[0] ?? null);
+        }
+
+        return is_scalar($value) && $value !== '' ? (string) $value : (string) $model->getKey();
+    }
+
+    /**
+     * @return class-string<Model>
+     */
+    public function modelClass(): string
+    {
+        return $this->model;
+    }
+
+    /**
+     * @return array<string, Field>
+     */
+    public function fields(): array
+    {
+        $fields = [];
+
+        foreach ($this->form() as $field) {
+            $fields[$field->name] = $field;
+        }
+
+        return $fields;
+    }
+
+    /**
+     * @param  array<string, mixed>  $input
+     * @param  bool  $onlyPresentFields  Validate only the fields present in the input (partial update).
+     * @return array<string, array<int, mixed>>
+     */
+    public function validationRules(array $input, bool $onlyPresentFields = false): array
+    {
+        $rules = [];
+
+        foreach ($this->fields() as $name => $field) {
+            if ($onlyPresentFields && ! array_key_exists($name, $input)) {
+                continue;
+            }
+
+            $rules = [...$rules, ...$field->validationRules($name, $input[$name] ?? null)];
+        }
+
+        return $rules;
+    }
+
+    /**
+     * @param  array<string, mixed>  $input
+     * @return array<string, string>
+     */
+    public function validationAttributes(array $input): array
+    {
+        $attributes = [];
+
+        foreach ($this->fields() as $name => $field) {
+            $attributes = [...$attributes, ...$field->validationAttributes($name, $input[$name] ?? null)];
+        }
+
+        return $attributes;
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public function toSchema(): array
+    {
+        return [
+            'name' => $this->name(),
+            'title' => $this->title(),
+            'fields' => array_values(array_map(fn (Field $field): array => $field->toSchema(), $this->fields())),
+        ];
+    }
+}
